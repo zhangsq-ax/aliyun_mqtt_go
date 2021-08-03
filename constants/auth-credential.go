@@ -1,5 +1,6 @@
 package constants
 
+// AuthType 鉴权类型
 type AuthType string
 
 const (
@@ -8,6 +9,7 @@ const (
 	AuthTypeDevice AuthType = "DeviceCredential" // 一机一密鉴权模
 )
 
+// AuthCredential 鉴权凭证
 type AuthCredential struct {
 	Type  string
 	Token string
