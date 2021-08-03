@@ -8,66 +8,78 @@ import (
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/zhangsq-ax/aliyun_mqtt_go/constants"
+	"github.com/zhangsq-ax/aliyun_mqtt_go/options"
 )
 
+// ConnectHelper MQTT 客户端连接助手
 type ConnectHelper struct {
-	AuthType   constants.AuthType        // 鉴权类型，非必须设置，不设置时需要在 GetClient() 或 GetConnectedClient() 方法中指定
-	Protocol   constants.ConnectProtocol // 连接协议
-	InstanceID string                    // 服务实例标识
-	Endpoints  []string                  // 服务接入点
-	Port       int                       // 服务接入点端口，非必须设置，缺省设置时将使用 Protocol 对应的默认端口
-	Username   string                    // 用户名，签名鉴权和 Token 鉴权模式下为管理员分配的 AccessKeyId，一机一密鉴权模式下使用鉴权服务分发的 DeviceAccessKeyId
-	Password   string                    // 密码，签名鉴权模式下使用管理分发的 AccessKeyId, Token 鉴权模式下使用鉴权服务分发的 Token, 一机一密鉴权模式下使用鉴权服务分发的 DeviceAccessKeySecret
+	options *options.MQTTClientOptions
 }
 
-func (helper *ConnectHelper) generateConnectOptions(opts *constants.ClientOptions) *constants.ConnectOptions {
+// 生成 MQTT 客户端连接信息
+func (helper *ConnectHelper) generateConnectOptions() (connOpts *options.ConnectOptions, expiredTime int64, err error) {
+	var password string
+	opts := helper.options
 	port := helper.getPort()
 	clientId := fmt.Sprintf("%s@@@%s", opts.GroupID, opts.ClientID)
 	var brokers []string
-	for _, endpoint := range helper.Endpoints {
-		brokers = append(brokers, fmt.Sprintf("%s://%s:%d", helper.Protocol, endpoint, port))
+	for _, endpoint := range opts.Endpoints {
+		brokers = append(brokers, fmt.Sprintf("%s://%s:%d", opts.Protocol, endpoint, port))
 	}
-	username := fmt.Sprintf("%s|%s|%s", helper.AuthType, helper.Username, helper.InstanceID)
-	password := helper.getPassword(opts.AuthType, clientId)
+	username := fmt.Sprintf("%s|%s|%s", opts.AuthType, opts.Username, opts.InstanceID)
+	password, expiredTime, err = helper.getPassword(clientId)
+	if err != nil {
+		return
+	}
 
-	return &constants.ConnectOptions{
+	connOpts = &options.ConnectOptions{
 		Username: username,
 		Password: password,
 		Brokers:  brokers,
 		ClientID: clientId,
 	}
+
+	return
 }
 
 // getPort 获取连接 MQTT 服务的端口
 func (helper *ConnectHelper) getPort() int {
-	if helper.Port == 0 {
-		helper.Port = constants.ConnectPort[helper.Protocol]
+	if helper.options.Port == 0 {
+		helper.options.Port = constants.ConnectPort[helper.options.Protocol]
 	}
-	return helper.Port
+	return helper.options.Port
 }
 
 // getPassword 根据设置的鉴权模式获取相应的 password
-func (helper *ConnectHelper) getPassword(authType *constants.AuthType, clientId string) string {
-	if authType == nil {
-		authType = &helper.AuthType
-	}
-	var password string
-	switch *authType {
+func (helper *ConnectHelper) getPassword(clientId string) (password string, expiredTime int64, err error) {
+	opts := helper.options
+	switch opts.AuthType {
 	case constants.AuthTypeSign, constants.AuthTypeDevice: // 签名鉴权或一机一密鉴权
-		mac := hmac.New(sha1.New, []byte(helper.Password))
+		mac := hmac.New(sha1.New, []byte(opts.Password))
 		mac.Write([]byte(clientId))
 		password = base64.StdEncoding.EncodeToString(mac.Sum(nil))
 	case constants.AuthTypeToken: // Token 鉴权
-		password = helper.Password
+		if opts.PasswordGetter != nil {
+			// 如果可能优先通过 PasswordGetter() 方法获取
+			password, expiredTime, err = opts.PasswordGetter(opts.ClientID)
+		}
+		if opts.Password != "" {
+			password = opts.Password
+		}
 	}
 
-	return password
+	return
 }
 
 // GetClient 获取 MQTT 客户端，客户端处理未连接状态，需要手动连接
-func (helper *ConnectHelper) GetClient(opts *constants.ClientOptions) mqtt.Client {
-	connectOpts := helper.generateConnectOptions(opts)
-	mqOpts := connectOpts.GetMQTTClientOptions()
+func (helper *ConnectHelper) GetClient() (client *mqtt.Client, expiredTime int64, err error) {
+	var connOpts *options.ConnectOptions
+	opts := helper.options
+	connOpts, expiredTime, err = helper.generateConnectOptions()
+	if err != nil {
+		return
+	}
+	mqOpts := connOpts.GetMQTTClientOptions()
 
 	mqOpts.OnConnect = opts.OnConnect
 	if opts.OnConnect == nil {
@@ -79,23 +91,44 @@ func (helper *ConnectHelper) GetClient(opts *constants.ClientOptions) mqtt.Clien
 		mqOpts.OnConnectionLost = onConnectionLostDefault
 	}
 
-	return mqtt.NewClient(mqOpts)
+	c := mqtt.NewClient(mqOpts)
+	client = &c
+
+	return
 }
 
-// GetConnectedClient 获取已连接的 MQTT 客户端
-func (helper *ConnectHelper) GetConnectedClient(opts *constants.ClientOptions) (mqtt.Client, error) {
-	client := helper.GetClient(opts)
-	token := client.Connect()
-	token.Wait()
-	err := token.Error()
+// GetClient 获取 MQTT 客户端对象
+func GetClient(opts *options.MQTTClientOptions) (client *mqtt.Client, expiredTime int64, err error) {
+	helper := NewConnectHelperFromClientOptions(opts)
+	client, expiredTime, err = helper.GetClient()
 	if err != nil {
-		return nil, err
+		return
+	}
+	c := *client
+
+	token := c.Connect()
+	token.Wait()
+	err = token.Error()
+	if err != nil {
+		client = nil
+		expiredTime = 0
+		return
 	}
 
-	if client.IsConnected() {
-		return client, nil
+	if !c.IsConnected() {
+		client = nil
+		expiredTime = 0
+		err = errors.New("failed to connect MQTT service")
 	}
-	return nil, errors.New("failed to connect")
+
+	return
+}
+
+// NewConnectHelperFromClientOptions 根据 ClientOptions 创建 ConnectHelper 实例
+func NewConnectHelperFromClientOptions(opts *options.MQTTClientOptions) *ConnectHelper {
+	return &ConnectHelper{
+		options: opts,
+	}
 }
 
 func onConnectDefault(client mqtt.Client) {

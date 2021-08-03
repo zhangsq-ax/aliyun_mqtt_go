@@ -1,5 +1,6 @@
 package constants
 
+// ConnectProtocol 连接协议
 type ConnectProtocol string
 
 const (
@@ -9,6 +10,7 @@ const (
 	ConnectProtocolWss ConnectProtocol = "wss" // Port 443
 )
 
+// ConnectPort 连接协议对应的默认端口
 var ConnectPort = map[ConnectProtocol]int{
 	ConnectProtocolTcp: 1883,
 	ConnectProtocolSsl: 8883,
