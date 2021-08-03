@@ -13,40 +13,86 @@ go get github.com/zhangsq-ax/aliyun_mqtt_go
 
 ### Example
 
+Publish message
+
 ```go
 package main
 
 import (
   "github.com/zhangsq-ax/aliyun_mqtt_go"
   "github.com/zhangsq-ax/aliyun_mqtt_go/constants"
+  "github.com/zhangsq-ax/aliyun_mqtt_go/options"
 )
 
 func main() {
-  // Get helper instance
-  helper := &aliyun_mqtt_go.ConnectHelper{
-    AuthType:   constants.AuthTypeSign,                             // Authentication type. Refer to https://github.com/zhangsq-ax/aliyun_mqtt_go/blob/main/constants/auth-credential.go
-		Protocol:   constants.ConnectProtocolSsl,                       // The protocol of connect to MQTT server, Refer to https://github.com/zhangsq-ax/aliyun_mqtt_go/blob/main/constants/connect-protocol.go
-		InstanceID: "xxxx-xx-xxxxxxxxxxx",                              // The MQTT server instance ID
-		Endpoints:  []string{"xxxx-xx-xxxxxxxxxxx.mqtt.aliyuncs.com"},  // The connect endpoints of MQTT server
-		Username:   "xxxxxxxxxxxxxxxx",
-		Password:   "xxxxxxxxxxxxxxxx",
-  }
-  
-  // Get connected client
-  client, err := helper.GetConnectedClient(&constants.ClientOptions{
-    GroupID: "GID_test",              // The client group ID
-    ClientID: "client_test",          // Client ID
+  // Get MQTT client
+  client, err := aliyun_mqtt_go.NewMQTTClient(&options.MQTTClientOptions{
+    AuthType:   constants.AuthTypeSign,
+		Protocol:   constants.ConnectProtocolSsl,
+		InstanceID: "xxxx-xx-xxxxxxxxxxx",
+		Endpoints:  []string{"xxxx-xx-xxxxxxxxxx.mqtt.aliyuncs.com"},
+		Username:   "xxxxxxxxxxxxxxxxx",
+		Password:   "xxxxxxxxxxxxxxxxx",
+		GroupID:        "GID_xxxx",
+		ClientID:       "xxxxxxxxxx",
   })
   if err != nil {
     panic(err)
   }
   
-  // Publish message. Refer to https://github.com/eclipse/paho.mqtt.golang
-  token := client.Publish("test", 2, false, "hello world")
-  token.Wait()
-  err = token.Error()
+  // Publish message
+  err = client.Publish(&options.PublishOptions{
+    Topic: "test",
+    Qos: 2,
+    Payload: "hello mqtt",
+  })
   if err != nil {
     panic(err)
+  }
+}
+```
+
+
+
+Subscribe Message
+
+```go
+package main
+
+import (
+  "fmt"
+  "github.com/zhangsq-ax/aliyun_mqtt_go"
+  "github.com/zhangsq-ax/aliyun_mqtt_go/constants"
+  "github.com/zhangsq-ax/aliyun_mqtt_go/options"
+)
+
+func main() {
+  // Get MQTT client
+  client, err := aliyun_mqtt_go.NewMQTTClient(&options.MQTTClientOptions{
+    AuthType:   constants.AuthTypeSign,
+		Protocol:   constants.ConnectProtocolSsl,
+		InstanceID: "xxxx-xx-xxxxxxxxxxx",
+		Endpoints:  []string{"xxxx-xx-xxxxxxxxxx.mqtt.aliyuncs.com"},
+		Username:   "xxxxxxxxxxxxxxxxx",
+		Password:   "xxxxxxxxxxxxxxxxx",
+		GroupID:        "GID_xxxx",
+		ClientID:       "xxxxxxxxxx",
+  })
+  if err != nil {
+    panic(err)
+  }
+  
+  // Subscribe message
+  msgChan, err := client.Subscribe(&options.SubscribeOptions{
+    Topic: "test",
+    Qos: 2,
+  })
+  if err != nil {
+    panic(err)
+  }
+  
+  for msg := range msgChan {
+    fmt.Println(msg.Payload())
   }
 }
 ```
